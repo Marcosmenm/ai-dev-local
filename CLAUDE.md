@@ -37,6 +37,7 @@ See `config.py` for all available settings.
 
 ## Architecture
 → See [docs/architecture.md](docs/architecture.md) for full design details.
+→ See [docs/decisions.md](docs/decisions.md) for why each key decision was made (keep this updated).
 → See [docs/adding-languages.md](docs/adding-languages.md) to add chunking support for new languages.
 
 ## Rules
