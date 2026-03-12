@@ -1,4 +1,5 @@
 from indexer.chunkers.base_chunker import CodeChunk
+from indexer.dependency_graph import DependencyGraph
 from indexer.vector_store import VectorStore
 
 MAX_CONTEXT_TOKENS = 5500  # Leave ~2500 for model response
@@ -13,28 +14,44 @@ LANG_FENCE = {
 }
 
 
-def build_context(chunks: list[CodeChunk], store: VectorStore) -> str:
+def build_context(
+    chunks: list[CodeChunk],
+    store: VectorStore,
+    graph: DependencyGraph | None = None,
+) -> str:
     """
     Format retrieved chunks into a structured context block for the LLM.
-    Also injects the file header for each unique source file to provide
-    import/dependency context.
+
+    1. Injects file headers for each unique source file (import context)
+    2. Adds the retrieved chunks themselves
+    3. If a dependency graph is available, expands by 1 hop —
+       fetches file headers of imported files so the LLM sees
+       the architecture around the retrieved code.
     """
-    # Collect unique file paths from non-header chunks
     seen_files: set[str] = set()
     file_headers: list[CodeChunk] = []
 
     for chunk in chunks:
         if chunk.chunk_type != "file_header" and chunk.file_path not in seen_files:
             seen_files.add(chunk.file_path)
-            # Pull the file header from the store for this file
             header = _get_file_header(chunk.file_path, store)
             if header:
                 file_headers.append(header)
 
+    # Graph expansion: get headers of files imported by retrieved files
+    dep_headers: list[CodeChunk] = []
+    if graph:
+        expanded_files = graph.expand(list(seen_files), max_extra=8)
+        for dep_path in expanded_files:
+            if dep_path not in seen_files:
+                header = _get_file_header(dep_path, store)
+                if header:
+                    dep_headers.append(header)
+
     context_parts = []
     total_tokens = 0
 
-    # Add file headers first (dependency context)
+    # 1. File headers from retrieved chunks
     for header in file_headers:
         section = _format_chunk(header, len(context_parts) + 1)
         tokens = int(len(section.split()) * 1.3)
@@ -43,7 +60,7 @@ def build_context(chunks: list[CodeChunk], store: VectorStore) -> str:
         context_parts.append(section)
         total_tokens += tokens
 
-    # Add retrieved chunks
+    # 2. Retrieved chunks
     for chunk in chunks:
         if chunk.chunk_type == "file_header":
             continue
@@ -54,13 +71,23 @@ def build_context(chunks: list[CodeChunk], store: VectorStore) -> str:
         context_parts.append(section)
         total_tokens += tokens
 
+    # 3. Dependency expansion headers (if budget remains)
+    if dep_headers:
+        for header in dep_headers:
+            section = _format_chunk(header, len(context_parts) + 1, label_prefix="[dep] ")
+            tokens = int(len(section.split()) * 1.3)
+            if total_tokens + tokens > MAX_CONTEXT_TOKENS:
+                break
+            context_parts.append(section)
+            total_tokens += tokens
+
     return "\n\n".join(context_parts)
 
 
-def _format_chunk(chunk: CodeChunk, index: int) -> str:
+def _format_chunk(chunk: CodeChunk, index: int, label_prefix: str = "") -> str:
     fence = LANG_FENCE.get(chunk.language, "")
     label = chunk.display_label()
-    return f"### [{index}] {label}\n```{fence}\n{chunk.content}\n```"
+    return f"### [{index}] {label_prefix}{label}\n```{fence}\n{chunk.content}\n```"
 
 
 def _get_file_header(file_path: str, store: VectorStore) -> CodeChunk | None:

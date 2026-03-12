@@ -6,6 +6,7 @@ from indexer.chunkers.blade_chunker import BladeChunker
 from indexer.chunkers.fallback_chunker import FallbackChunker
 from indexer.chunkers.php_chunker import PhpChunker
 from indexer.chunkers.typescript_chunker import TypescriptChunker
+from indexer.dependency_graph import DependencyGraph
 from indexer.embedder import embed_chunks
 from indexer.file_header import extract_file_header
 from indexer.file_scanner import scan_repo
@@ -13,8 +14,8 @@ from indexer.vector_store import VectorStore
 from llm.ollama_client import OllamaClient
 from llm.prompt_templates import QUERY_TEMPLATE, SYSTEM_PROMPT
 from retriever.context_builder import build_context
+from retriever.hybrid_search import HybridSearch
 from retriever.reranker import Reranker
-from retriever.vector_search import VectorSearch
 
 
 class IndexStats:
@@ -36,8 +37,13 @@ class RepoAgent:
             (Path(__file__).parent.parent / settings.chroma_db_path).resolve()
         )
         self._store = VectorStore(db_path, self._collection_name)
-        self._search = VectorSearch(self._store, self._client)
+        self._search = HybridSearch(self._store, self._client)
         self._reranker = Reranker(self._client)
+
+        # Dependency graph — persisted next to ChromaDB
+        self._graph = DependencyGraph()
+        self._graph_path = Path(db_path) / f"{self._collection_name}_deps.json"
+        self._graph.load(self._graph_path)
 
         self._chunkers = {
             "php": PhpChunker(settings.max_chunk_tokens),
@@ -67,13 +73,16 @@ class RepoAgent:
         stats.files_scanned = len(files)
 
         for fp, lang in files:
-            if not self._store.file_needs_indexing(fp):
-                stats.files_skipped += 1
-                continue
-
+            # Always build dependency graph (fast regex, no embedding needed)
             try:
                 source = Path(fp).read_text(encoding="utf-8", errors="ignore")
             except OSError:
+                continue
+
+            self._graph.add_file(fp, source, lang)
+
+            if not self._store.file_needs_indexing(fp):
+                stats.files_skipped += 1
                 continue
 
             chunker = self._chunkers.get(lang, self._fallback)
@@ -98,6 +107,9 @@ class RepoAgent:
             if progress_callback:
                 progress_callback(fp, len(chunks))
 
+        # Persist dependency graph
+        self._graph.save(self._graph_path)
+
         return stats
 
     # ── Querying ──────────────────────────────────────────────────────────────
@@ -121,7 +133,7 @@ class RepoAgent:
                 yield f"[{i}] {chunk.display_label()}\n"
             yield "\n## Answer\n"
 
-        context = build_context(top_chunks, self._store)
+        context = build_context(top_chunks, self._store, self._graph)
         prompt = (
             f"{SYSTEM_PROMPT}\n\n"
             + QUERY_TEMPLATE.format(context=context, question=question)

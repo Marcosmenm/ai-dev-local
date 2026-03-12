@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
@@ -19,9 +19,9 @@ def _make_agent(repo: Optional[str]):
 
 @app.command()
 def index(
-    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repo to index"),
-    force: bool = typer.Option(False, "--force", help="Wipe existing index and re-index from scratch"),
-    file: Optional[str] = typer.Option(None, "--file", help="Index a single file only"),
+    repo: Annotated[Optional[str], typer.Option("--repo", "-r", help="Path to the repo to index")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Wipe existing index and re-index from scratch")] = False,
+    file: Annotated[Optional[str], typer.Option("--file", help="Index a single file only")] = None,
 ):
     """Index a repository so you can ask questions about it."""
     agent = _make_agent(repo)
@@ -71,9 +71,9 @@ def index(
 
 @app.command()
 def ask(
-    question: str = typer.Argument(..., help="Question to ask about the codebase"),
-    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repo"),
-    debug: bool = typer.Option(False, "--debug", help="Show retrieved chunks before the answer"),
+    question: Annotated[str, typer.Argument(help="Question to ask about the codebase")],
+    repo: Annotated[Optional[str], typer.Option("--repo", "-r", help="Path to the repo")] = None,
+    debug: Annotated[bool, typer.Option("--debug", help="Show retrieved chunks before the answer")] = False,
 ):
     """Ask a natural language question about the indexed codebase."""
     agent = _make_agent(repo)
@@ -98,7 +98,7 @@ def ask(
 
 @app.command()
 def stats(
-    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repo"),
+    repo: Annotated[Optional[str], typer.Option("--repo", "-r", help="Path to the repo")] = None,
 ):
     """Show index statistics for a repository."""
     agent = _make_agent(repo)

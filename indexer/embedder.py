@@ -1,3 +1,5 @@
+import time
+
 from indexer.chunkers.base_chunker import CodeChunk
 from llm.ollama_client import OllamaClient
 
@@ -10,6 +12,11 @@ LANG_PREFIX = {
     "blade": "Blade template",
     "file_header": "File header with imports",
 }
+
+# mxbai-embed-large has a 512-token context window.
+# Dense PHP config/JS code tokenizes at ~1 token per 2 chars worst case.
+# 900 chars ≈ 450 tokens — safely under the 512 limit for all code types.
+MAX_EMBED_CHARS = 900
 
 
 def embed_chunks(
@@ -30,10 +37,21 @@ def embed_chunks(
         else:
             text = f"{prefix}:\n{chunk.content}"
 
-        embedding = client.embed(text)
-        results.append((chunk, embedding))
+        # Truncate to stay within mxbai-embed-large's 512-token context window
+        if len(text) > MAX_EMBED_CHARS:
+            text = text[:MAX_EMBED_CHARS]
+
+        try:
+            embedding = client.embed(text)
+            results.append((chunk, embedding))
+        except Exception as e:
+            print(f"[Warning] Failed to embed {chunk.file_path}: {e}")
+            continue
 
         if progress_callback:
             progress_callback(i + 1, len(chunks))
+
+        # Small delay to prevent Ollama overload
+        time.sleep(0.1)
 
     return results

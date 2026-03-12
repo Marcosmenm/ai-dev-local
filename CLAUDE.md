@@ -36,6 +36,7 @@ Edit `.env` to change defaults (repo path, models, top-k values).
 See `config.py` for all available settings.
 
 ## Architecture
+→ See [docs/development-analysis.md](docs/development-analysis.md) for a complete analysis of what changed from the original plan and why.
 → See [docs/codebase-map.md](docs/codebase-map.md) for a map of every file and its purpose.
 → See [docs/architecture.md](docs/architecture.md) for full design details.
 → See [docs/decisions.md](docs/decisions.md) for why each key decision was made (keep this updated).

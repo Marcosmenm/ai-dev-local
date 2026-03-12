@@ -10,7 +10,7 @@ from indexer.chunkers.base_chunker import CodeChunk
 
 
 def _chunk_id(chunk: CodeChunk) -> str:
-    key = f"{chunk.file_path}::{chunk.symbol_name}::{chunk.start_line}"
+    key = f"{chunk.file_path}::{chunk.chunk_type}::{chunk.symbol_name}::{chunk.start_line}"
     return hashlib.md5(key.encode()).hexdigest()
 
 
@@ -99,6 +99,35 @@ class VectorStore:
                     language=meta["language"],
                 )
             )
+        return chunks
+
+    def keyword_search(self, term: str, limit: int = 20) -> list[CodeChunk]:
+        """Search chunks by literal keyword match in document content."""
+        count = self._collection.count()
+        if count == 0:
+            return []
+        try:
+            results = self._collection.get(
+                where_document={"$contains": term},
+                include=["documents", "metadatas"],
+                limit=min(limit, count),
+            )
+        except Exception:
+            return []
+        chunks = []
+        if results and results["documents"]:
+            for doc, meta in zip(results["documents"], results["metadatas"]):
+                chunks.append(
+                    CodeChunk(
+                        content=doc,
+                        file_path=meta["file_path"],
+                        chunk_type=meta["chunk_type"],
+                        symbol_name=meta["symbol_name"],
+                        start_line=meta["start_line"],
+                        end_line=meta["end_line"],
+                        language=meta["language"],
+                    )
+                )
         return chunks
 
     # ── Stats ─────────────────────────────────────────────────────────────────

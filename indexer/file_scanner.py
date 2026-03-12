@@ -1,12 +1,16 @@
 import os
+import re
 from pathlib import Path
+
+# Matches bundled filenames like main-GWYJEUO4.js or chunk.abc123ef.js
+_BUNDLED_FILE_RE = re.compile(r"-[A-Z0-9]{7,}\.(js|ts|css)$", re.IGNORECASE)
 
 # Directories to always skip
 SKIP_DIRS = {
     "vendor", "node_modules", "storage", ".git", "build", "dist",
     "chroma_db", "__pycache__", ".next", "coverage", "public/build",
     "bootstrap/cache", ".idea", ".vscode", ".claude",
-    "DB Dump", "db_dump",
+    "DB Dump", "db_dump", "testflowswebsite", "Production_files",
 }
 
 # File extensions to index, mapped to language label
@@ -51,9 +55,11 @@ def scan_repo(repo_path: str) -> list[tuple[str, str]]:
         for filename in filenames:
             filepath = Path(dirpath) / filename
 
-            # Skip by suffix
+            # Skip by suffix or bundled filename pattern
             name_lower = filename.lower()
             if any(name_lower.endswith(s) for s in SKIP_SUFFIXES):
+                continue
+            if _BUNDLED_FILE_RE.search(filename):
                 continue
 
             # Blade templates: special case (.blade.php takes priority over .php)
